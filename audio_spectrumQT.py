@@ -1,24 +1,20 @@
 import numpy as np
-from pyqtgraph.Qt import QtGui, QtCore
+from pyqtgraph.Qt import QtGui, QtCore, QtWidgets
 import pyqtgraph as pg
-
-import struct
-import pyaudio
+from pyqtgraph import GraphicsLayoutWidget
 from scipy.fftpack import fft
-
+from scipy.io import wavfile
 import sys
-import time
 
 
 class AudioStream(object):
-    def __init__(self):
-
+    def __init__(self, wav_file_path):
         # pyqtgraph stuff
         pg.setConfigOptions(antialias=True)
         self.traces = dict()
-        self.app = QtGui.QApplication(sys.argv)
-        self.win = pg.GraphicsWindow(title='Spectrum Analyzer')
-        self.win.setWindowTitle('Spectrum Analyzer')
+        self.app = QtWidgets.QApplication(sys.argv)
+        self.win = GraphicsLayoutWidget(title='Spectrum Analyzer')
+
         self.win.setGeometry(5, 115, 1910, 1070)
 
         wf_xlabels = [(0, '0'), (2048, '2048'), (4096, '4096')]
@@ -43,28 +39,17 @@ class AudioStream(object):
             title='SPECTRUM', row=2, col=1, axisItems={'bottom': sp_xaxis},
         )
 
-        # pyaudio stuff
-        self.FORMAT = pyaudio.paInt16
-        self.CHANNELS = 1
-        self.RATE = 44100
-        self.CHUNK = 1024 * 2
+        # Read .wav file
+        wave_data = wavfile.read(wav_file_path)
+        self.wav_data = wave_data[1][:, 0]  # Use only the first channel if stereo
 
-        self.p = pyaudio.PyAudio()
-        self.stream = self.p.open(
-            format=self.FORMAT,
-            channels=self.CHANNELS,
-            rate=self.RATE,
-            input=True,
-            output=True,
-            frames_per_buffer=self.CHUNK,
-        )
-        # waveform and spectrum x points
-        self.x = np.arange(0, 2 * self.CHUNK, 2)
-        self.f = np.linspace(0, self.RATE / 2, self.CHUNK / 2)
+        self.CHUNK = 1024  # Adjust the chunk size as needed
+        self.x = np.arange(0, self.CHUNK, 1)
+        self.f = np.linspace(0, wave_data[0], self.CHUNK)
 
     def start(self):
         if (sys.flags.interactive != 1) or not hasattr(QtCore, 'PYQT_VERSION'):
-            QtGui.QApplication.instance().exec_()
+            self.app.exec()
 
     def set_plotdata(self, name, data_x, data_y):
         if name in self.traces:
@@ -73,24 +58,37 @@ class AudioStream(object):
             if name == 'waveform':
                 self.traces[name] = self.waveform.plot(pen='c', width=3)
                 self.waveform.setYRange(0, 255, padding=0)
-                self.waveform.setXRange(0, 2 * self.CHUNK, padding=0.005)
+                self.waveform.setXRange(0, self.CHUNK, padding=0.005)
             if name == 'spectrum':
                 self.traces[name] = self.spectrum.plot(pen='m', width=3)
                 self.spectrum.setLogMode(x=True, y=True)
                 self.spectrum.setYRange(-4, 0, padding=0)
                 self.spectrum.setXRange(
-                    np.log10(20), np.log10(self.RATE / 2), padding=0.005)
+                    np.log10(20), np.log10(self.f[-1]), padding=0.005)
 
+    # def update(self):
+    #     if len(self.wav_data) >= self.CHUNK:
+    #         wf_data = self.wav_data[:self.CHUNK]
+    #         self.wav_data = self.wav_data[self.CHUNK:]
+
+    #         wf_data = np.array(wf_data, dtype='int32') + 128
+    #         self.set_plotdata(name='waveform', data_x=self.x, data_y=wf_data)
+
+    #         sp_data = fft(np.array(wf_data, dtype='int32') - 128)
+    #         sp_data = np.abs(sp_data[:int(self.CHUNK / 2)]) * 2 / (128 * self.CHUNK)
+    #         self.set_plotdata(name='spectrum', data_x=self.f, data_y=sp_data)
     def update(self):
-        wf_data = self.stream.read(self.CHUNK)
-        wf_data = struct.unpack(str(2 * self.CHUNK) + 'B', wf_data)
-        wf_data = np.array(wf_data, dtype='b')[::2] + 128
-        self.set_plotdata(name='waveform', data_x=self.x, data_y=wf_data,)
+        if len(self.wav_data) >= self.CHUNK:
+            wf_data = self.wav_data[:self.CHUNK]
+            self.wav_data = self.wav_data[self.CHUNK:]
 
-        sp_data = fft(np.array(wf_data, dtype='int8') - 128)
-        sp_data = np.abs(sp_data[0:int(self.CHUNK / 2)]
-                         ) * 2 / (128 * self.CHUNK)
-        self.set_plotdata(name='spectrum', data_x=self.f, data_y=sp_data)
+            wf_data = np.array(wf_data, dtype='int32') + 128
+            self.set_plotdata(name='waveform', data_x=self.x, data_y=wf_data)
+
+            sp_data = fft(np.array(wf_data, dtype='int32') - 128)
+            sp_data = np.abs(sp_data[:int(self.CHUNK / 2)]) * 2 / (128 * self.CHUNK)
+            self.set_plotdata(name='spectrum', data_x=self.f[:int(self.CHUNK / 2)], data_y=sp_data)
+
 
     def animation(self):
         timer = QtCore.QTimer()
@@ -100,6 +98,6 @@ class AudioStream(object):
 
 
 if __name__ == '__main__':
-
-    audio_app = AudioStream()
+    wav_file_path = r"C:\Users\rajka\Downloads\Sunflower-(Spider-Man_-Into-the-Spider-Verse)(PagalWorld).wav"
+    audio_app = AudioStream(wav_file_path)
     audio_app.animation()
